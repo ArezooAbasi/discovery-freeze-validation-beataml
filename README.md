@@ -80,8 +80,7 @@ estimate for frozen candidates; `effect_EB` is an exploratory shrinkage estimate
 ├── 00_build_patient_manifest.py    … 16_simulation_benchmark.py    pipeline stages (table below)
 ├── posthoc_validation_analysis.py  post hoc validation analyses (Methods 2.10; see §5.3)
 ├── audit_*.py, compare_repro.py, safe_io.py, fix_simulation_null_label.py   utilities
-├── test_pipeline.py                tests on synthetic data (no real data needed)
-└── docs/CHANGELOG.md
+└── test_pipeline.py                tests on synthetic data (no real data needed)
 ```
 
 ### Stages
