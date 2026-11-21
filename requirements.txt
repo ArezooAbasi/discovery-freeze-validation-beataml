@@ -1,0 +1,7 @@
+# Lower bounds. For exact reproduction, record your own versions: pip freeze > requirements-lock.txt
+numpy>=1.22
+pandas>=1.5
+scipy>=1.9
+statsmodels>=0.13
+matplotlib>=3.6
+openpyxl>=3.0
