@@ -1,10 +1,10 @@
 # BeatAML mutation–drug association pipeline
 
-A **Discovery → Freeze → Validation** framework for the *exploratory prioritisation* of nominal
+A **Discovery - Freeze - Validation** framework for the *exploratory prioritisation* of nominal
 mutation–drug-response signals in a large ex-vivo drug screen. The BeatAML 2.0 cohort
 (acute myeloid leukaemia; ex-vivo inhibitor AUC + whole-exome mutations + clinical data) is the illustrating case.
 
-> **What this is — and is not.**
+> **What this is and is not.**
 > The pipeline reports mutation–drug pairs that are *stable under the checks performed* and then evaluates the
 > **same frozen list, one time, in a separate set of waves**. It is an exploratory prioritisation tool.
 > **No FDR/FDP control is claimed for the final list, and zero candidates is a valid result.**
