@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-posthoc_validation_analysis.py -- post hoc validation analyses (Methods 2.10).
+posthoc_validation_analysis.py -- post hoc validation analyses (Methods 2.9.1 and 2.9.2).
 
 These analyses are POST HOC: they run after the freeze and after VALIDATION, they do not take part in
 selection, and they do not modify any frozen output.
 
-  2.10.1  perm : chance baseline. The AUC rows of the VALIDATION cohort are permuted jointly across patients
+  2.9.1  perm : chance baseline. The AUC rows of the VALIDATION cohort are permuted jointly across patients
                  (genotype structure fixed, gene->AUC link broken) and the number of "validated" main-track pairs
                  (BH q < 0.10 within the reproducible subset AND same direction as Discovery) is counted.
-  2.10.2  flt3 : FLT3 validation with WES-only labels (clinical ITD removed) instead of the composite FLT3 definition,
+  2.9.2  flt3 : FLT3 validation with WES-only labels (clinical ITD removed) instead of the composite FLT3 definition,
                  in two variants: ITD-only patients treated as non-mutated, or excluded.
 
 Usage (run from anywhere; outputs of `perm` are written to the current directory):
@@ -19,7 +19,8 @@ Usage (run from anywhere; outputs of `perm` are written to the current directory
 Inputs : FULL/analysis_population.csv, manifest/patient_level_cohort_manifest.csv,
          manifest/flt3_composite_provenance_VALIDATION.csv (flt3 only),
          VALIDATION/validation_report.csv, VALIDATION/validation_report_sensitivity.csv
-Outputs: permutation_baseline_summary.json, permutation_null_counts.csv   (perm only)
+Outputs: permutation_baseline_summary.json, permutation_null_counts.csv   (perm)
+         flt3_wes_only_validation.csv, flt3_not_evaluable_pairs.csv        (flt3)
 Needs  : numpy, pandas, scipy, statsmodels
 """
 import json
@@ -97,7 +98,7 @@ def _validated(effects, pvals, discovery):
 
 
 def run_perm(mut, auc, ev):
-    """2.10.1 -- chance baseline for the number of validated pairs."""
+    """2.9.1 -- chance baseline for the number of validated pairs."""
     rows = []
     for _, r in ev.iterrows():
         if r.gene in mut and r.drug in auc:
@@ -106,13 +107,14 @@ def run_perm(mut, auc, ev):
             rows.append((np.nan, np.nan))
     ev["rb"] = [x[0] for x in rows]
     ev["p"] = [x[1] for x in rows]
-    ev["match"] = (ev.rb - ev.validation_effect).abs() < 1e-9      # only pairs that are reproduced exactly
+    ev["match"] = ((ev.rb - ev.validation_effect).abs() < 1e-9) & ((ev.p - ev.validation_p).abs() < 1e-9)   # effect AND p reproduced exactly
     main = ev[(ev.rule_track == "main") & ev.match].reset_index(drop=True)
     print("main pairs reproducible:", len(main))
 
     disc = main.discovery_effect.values
     v0, _ = _validated(main.rb.values, main.p.values, disc)
     print("observed validated in subset (BH within subset):", v0.sum(), "| original flag:", main.flag_validated.sum())
+    assert len(main) == 128 and v0.sum() == 64, (len(main), v0.sum())   # Section 2.9.1 / 3.6.6
 
     genes = sorted(set(main.gene))
     drugs = sorted(set(main.drug))
@@ -159,12 +161,14 @@ def run_perm(mut, auc, ev):
 
 
 def run_flt3(mut, auc, ev):
-    """2.10.2 -- FLT3 validation with WES-only labels."""
+    """2.9.2 -- FLT3 validation with WES-only labels."""
     prov = (_read("manifest/flt3_composite_provenance_VALIDATION.csv")
             .set_index("patient_id").reindex(mut.index))
     composite = mut["FLT3"].values.astype(float)
     wes = prov.wes_positive.astype(float).values
+    assert not np.isnan(wes).any()
     itd_only = (composite == 1) & (wes == 0)
+    assert int(itd_only.sum()) == 41 and int(wes.sum()) == 17        # Section 3.6.7
     wes_itd_as_neg = wes.copy()                 # ITD-only patients become non-mutated
     wes_itd_excluded = wes.copy()               # ITD-only patients are removed from both groups
     wes_itd_excluded[itd_only] = np.nan
@@ -179,13 +183,14 @@ def run_flt3(mut, auc, ev):
         m = mut[r.gene].values.astype(float) if r.gene != "FLT3" else labels
         return test(m, auc[r.drug].values)[:2]
 
+    out_rows, not_eval = [], []
+
     def summarise(labels, name):
         res = np.array([one(r, labels) for _, r in main.iterrows()])
         e, p = res[:, 0].copy(), res[:, 1].copy()
-        # non-FLT3 pairs keep their original validation result (they enter the BH family unchanged)
-        miss = (~is_flt3) & np.isnan(p)
-        e[miss] = main.validation_effect.values[miss]
-        p[miss] = main.validation_p.values[miss]
+        # only FLT3 labels change: non-FLT3 pairs keep their stored validation result (they enter the BH family unchanged)
+        e[~is_flt3] = main.validation_effect.values[~is_flt3]
+        p[~is_flt3] = main.validation_p.values[~is_flt3]
         ok = ~np.isnan(p)
         q = np.full(len(p), np.nan)
         q[ok] = multipletests(p[ok], method="fdr_bh")[1]
@@ -195,10 +200,19 @@ def run_flt3(mut, auc, ev):
         print(name, "| FLT3 evaluable", fo.sum(), "| concordant", (conc & fo).sum(),
               "| validated", (val & is_flt3).sum(),
               "| median sign-aligned r %.3f" % np.nanmedian((np.sign(disc) * e)[fo]))
+        print("  non-FLT3 validated:", int((val & ~is_flt3).sum()),
+              "| track-level validated:", int(val.sum()), "| family size:", int(ok.sum()))
+        ne = main.loc[is_flt3 & ~ok, "drug"].tolist()
+        print("  FLT3 pairs not evaluable:", ne)
+        not_eval.append(dict(variant=name, drugs="; ".join(ne)))
+        out_rows.append(pd.DataFrame(dict(variant=name, gene=main.gene, drug=main.drug, is_flt3=is_flt3,
+                                          effect=e, p=p, q=q, concordant=conc, validated=val)))
 
     summarise(composite, "composite")
     summarise(wes_itd_as_neg, "WES-only (ITD-only -> non-mutated)")
     summarise(wes_itd_excluded, "WES-only (ITD-only excluded)")
+    pd.concat(out_rows).to_csv("flt3_wes_only_validation.csv", index=False)
+    pd.DataFrame(not_eval).to_csv("flt3_not_evaluable_pairs.csv", index=False)
 
 
 def main():
