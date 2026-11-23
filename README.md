@@ -1,10 +1,10 @@
 # BeatAML mutation–drug association pipeline
 
-A **Discovery - Freeze - Validation** framework for the *exploratory prioritisation* of nominal
+A **Discovery → Freeze → Validation** framework for the *exploratory prioritisation* of nominal
 mutation–drug-response signals in a large ex-vivo drug screen. The BeatAML 2.0 cohort
 (acute myeloid leukaemia; ex-vivo inhibitor AUC + whole-exome mutations + clinical data) is the illustrating case.
 
-> **What this is and is not.**
+> **What this is — and is not.**
 > The pipeline reports mutation–drug pairs that are *stable under the checks performed* and then evaluates the
 > **same frozen list, one time, in a separate set of waves**. It is an exploratory prioritisation tool.
 > **No FDR/FDP control is claimed for the final list, and zero candidates is a valid result.**
@@ -78,7 +78,9 @@ estimate for frozen candidates; `effect_EB` is an exploratory shrinkage estimate
 │   ├── adjust.py                   co-mutation screening + adjusted OLS
 │   └── synthetic.py                synthetic data for code testing only
 ├── 00_build_patient_manifest.py    … 16_simulation_benchmark.py    pipeline stages (table below)
-├── posthoc_validation_analysis.py  post hoc validation analyses (Methods 2.10; see §5.3)
+├── post_hoc/                       post hoc analyses, Methods 2.9.1–2.9.8 (see §5.3)
+│   ├── posthoc_validation_analysis.py   2.9.1 permutation baseline, 2.9.2 FLT3 WES-only validation
+│   └── posthoc_discovery_criteria.py    2.9.3–2.9.8 (Tables 9, 11, 12, 13, 18, 19; concordance by gene)
 ├── audit_*.py, compare_repro.py, safe_io.py, fix_simulation_null_label.py   utilities
 └── test_pipeline.py                tests on synthetic data (no real data needed)
 ```
@@ -98,15 +100,16 @@ estimate for frozen candidates; `effect_EB` is an exploratory shrinkage estimate
 | `08_adjusted_analysis.py` | Co-mutation-adjusted AUC ~ gene for every stable pair | `adjusted_analysis_results.csv` |
 | `08b_freeze_candidates.py` | Gates for **all** candidates, freeze, hashes | `freeze_audit.csv`, `frozen_candidate_list.csv`, `frozen_sensitivity_list.csv`, `freeze_manifest.json` |
 | `08c_global_sensitivity_diagnostic.py` | Diagnostic: how much of an effect is shared across all drugs (not a gate) | `global_sensitivity_diagnostic.csv`, `panel_size_by_gene.csv` |
-| `09_sensitivity_negative_control.py` | Outliers, permutation, confounder removal, repeat-record rules, WES-only FLT3 | `sensitivity_negative_control_results.csv` |
-| `10_prespecified_confounding.py` | Predefined/exploratory confounding questions (`EXTRA_CONFOUNDING_CHECKS`) | `prespecified_confounding_results.csv` |
+| `09_sensitivity_analyses.py` | Outliers, permutation, confounder removal, repeat-record rules, WES-only FLT3 | `sensitivity_analyses_results.csv` |
+| `10_predefined_confounding.py` | Predefined/exploratory confounding questions (`EXTRA_CONFOUNDING_CHECKS`) | `predefined_confounding_results.csv` |
 | `11_analysis_population.py` | Patient-level analysis population for every stable pair | `analysis_population.csv` |
 | `12_audit.py` | Automatic consistency audit (hash chains, BH recomputation, coverage, signs) | console report |
 | `13_master_table.py` | Joins earlier outputs; recomputes nothing | `final_master_association_table.csv` |
 | `14_validation_report.py` | Validation report with MDE/power; "not confirmed" ≠ "rejected" | `validation_report.csv`, `validation_summary.txt` |
 | `15_make_figures.py` · `15b_make_figures_detail.py` | Paper figures (PNG 300 dpi + PDF) · per-pair figures for internal review | `output/figures/` |
 | `16_simulation_benchmark.py` | Simulation benchmark (see §7) | `simulation_*.csv` |
-| `posthoc_validation_analysis.py` | Post hoc: permutation chance baseline and WES-only FLT3 validation (§5.3) | `permutation_baseline_summary.json`, `permutation_null_counts.csv` |
+| `post_hoc/posthoc_validation_analysis.py` | Post hoc 2.9.1–2.9.2: permutation chance baseline; WES-only FLT3 validation (§5.3) | `permutation_baseline_summary.json`, `permutation_null_counts.csv`, `flt3_wes_only_validation.csv`, `flt3_not_evaluable_pairs.csv` |
+| `post_hoc/posthoc_discovery_criteria.py` | Post hoc 2.9.3–2.9.8: validation rate by discovery criterion, G3 logistic models, false-declaration proportion, co-mutated false declarations, concordance by gene (§5.3) | `posthoc_table*.csv`, `posthoc_concordance_by_gene.csv` |
 
 Utilities: `audit_flt3_itd.py` (run before/after filling the FLT3-ITD values in the config), `audit_dna_timing.py`,
 `audit_mutation_matrix.py` (read-only audits), `compare_repro.py` (content-level comparison of two output roots),
@@ -201,8 +204,8 @@ python 01_association_screen.py --cohort VALIDATION --frozen output/DISCOVERY/fr
 python 01_association_screen.py --cohort VALIDATION --frozen output/DISCOVERY/frozen_sensitivity_list.csv --tag sensitivity   # optional
 
 # --- checks, report, tables, figures
-python 09_sensitivity_negative_control.py --cohort DISCOVERY
-python 10_prespecified_confounding.py     --cohort DISCOVERY
+python 09_sensitivity_analyses.py --cohort DISCOVERY
+python 10_predefined_confounding.py     --cohort DISCOVERY
 python 11_analysis_population.py          --cohort DISCOVERY
 python 14_validation_report.py                                    # add --tag sensitivity for the sensitivity list
 python 12_audit.py --cohort DISCOVERY
@@ -218,19 +221,35 @@ python 01_association_screen.py --cohort FULL
 Optional: `08c_global_sensitivity_diagnostic.py`, `15b_make_figures_detail.py`,
 `16_simulation_benchmark.py --multi-m1 10 20 30` (multi-pair scenario), `--with-wy` (Westfall-Young comparator).
 
-### 5.3 Post hoc validation analyses (Methods 2.10)
+### 5.3 Post hoc analyses (Methods 2.9)
 
 Run after Validation. These analyses are **post hoc**: they take no part in selection and modify no frozen output.
+Each script writes its tables to the current directory.
 
 ```bash
-export BEATAML_OUT=/path/to/output     # must contain FULL/, manifest/ and VALIDATION/
-python posthoc_validation_analysis.py perm 2000    # 2.10.1 chance baseline: joint permutation of the Validation AUC rows
-python posthoc_validation_analysis.py flt3         # 2.10.2 FLT3 validated with WES-only labels (ITD-only as non-mutated / excluded)
+export BEATAML_OUT=/path/to/output     # the main run folder; must contain DISCOVERY/, FULL/, manifest/ and VALIDATION/
+cd post_hoc
+python posthoc_validation_analysis.py perm 2000   # 2.9.1 chance baseline (joint permutation of Validation AUC rows)
+python posthoc_validation_analysis.py flt3        # 2.9.2 FLT3 validated with WES-only labels (ITD-only as non-mutated / excluded)
+python posthoc_discovery_criteria.py              # 2.9.3-2.9.8 and Tables 9, 11, 12, 13, 18, 19
 ```
 
-`perm` writes `permutation_baseline_summary.json` and `permutation_null_counts.csv` to the current directory.
-Extra inputs: `FULL/analysis_population.csv`, `manifest/flt3_composite_provenance_VALIDATION.csv`,
-`VALIDATION/validation_report*.csv`.
+| Paper section | Script | Output file(s) |
+|---|---|---|
+| 2.9.1, 3.6.6 | `posthoc_validation_analysis.py perm` | `permutation_baseline_summary.json`, `permutation_null_counts.csv` |
+| 2.9.2, 3.6.7, Table 10 | `posthoc_validation_analysis.py flt3` | `flt3_wes_only_validation.csv`, `flt3_not_evaluable_pairs.csv` |
+| 2.9.3, 3.6.8, Table 11 | `posthoc_discovery_criteria.py` | `posthoc_table11_validation_rate_by_criterion.csv` |
+| 2.9.4, 3.6.4, Table 9 | `posthoc_discovery_criteria.py` | `posthoc_table9_powered_discordant.csv` |
+| 2.9.5, 3.7.7, Table 19 | `posthoc_discovery_criteria.py` | `posthoc_table19_null_counts.csv`, `posthoc_table19_storey.csv` |
+| 2.9.6, 3.6.9, Tables 12-13 | `posthoc_discovery_criteria.py` | `posthoc_table12_logistic_G3.csv`, `posthoc_table13_G3_within_q_strata.csv` |
+| 2.9.7, 3.7.4, Table 18 | `posthoc_discovery_criteria.py` | `posthoc_table18_BH_comutated_false.csv` |
+| 2.9.8, 3.6.2 | `posthoc_discovery_criteria.py` | `posthoc_concordance_by_gene.csv` |
+
+Extra inputs of the first script: `FULL/analysis_population.csv`, `manifest/flt3_composite_provenance_VALIDATION.csv`,
+`VALIDATION/validation_report*.csv`. The script stops with an assertion if the reconstructed data do not give the
+published counts (128 reconstructable pairs, 64 validated, 41 ITD-only and 17 WES-positive FLT3 patients).
+Results are reproducible only from the main run folder that holds the freeze and the Validation outputs; if you run them on a
+re-run folder (for example `output_report`), say so when you cite the numbers.
 
 ---
 
