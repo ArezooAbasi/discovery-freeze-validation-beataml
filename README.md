@@ -73,7 +73,7 @@ estimate for frozen candidates; `effect_EB` is an exploratory shrinkage estimate
 │   ├── cohort.py                   patient manifest + sample-flow table
 │   ├── data.py                     cohort matrices, I/O helpers, hashing, freeze/validation lock
 │   ├── stats.py                    the only statistics implementation (tests, bootstrap, split-half, OLS, EB, power)
-│   ├── screen.py                   vectorised gene × drug screen + Westfall-Young min-p
+│   ├── screen.py                   vectorised gene × drug screen + single-step min-p
 │   ├── selection.py                the selection rule (shared by the pipeline and the simulation)
 │   ├── adjust.py                   co-mutation screening + adjusted OLS
 │   └── synthetic.py                synthetic data for code testing only
@@ -219,7 +219,7 @@ python 01_association_screen.py --cohort FULL
 ```
 
 Optional: `08c_global_sensitivity_diagnostic.py`, `15b_make_figures_detail.py`,
-`16_simulation_benchmark.py --multi-m1 10 20 30` (multi-pair scenario), `--with-wy` (Westfall-Young comparator).
+`16_simulation_benchmark.py --multi-m1 10 20 30` (multi-pair scenario), `--with-wy` (single-step min-p comparator).
 
 ### 5.3 Post hoc analyses (Methods 2.9)
 
@@ -280,7 +280,7 @@ co-mutation structure stay fixed and only the gene → AUC link is broken. Plant
 `delta × SD` of that drug (the official AUC scale is ≈ 0–300). The adjustment step is part of the rule.
 
 * **Family H20 (main comparison):** all methods run on the same family `{n_mut ≥ 20, n_wt ≥ 20}`:
-  `MAIN_N / MAIN_NS / MAIN_NSA`, `NOMINAL_STRICT`, `BH`, `BY`, `HOLM`, `TOPK_MATCHED`, data splitting, optional Westfall-Young.
+  `MAIN_N / MAIN_NS / MAIN_NSA`, `NOMINAL_STRICT`, `BH`, `BY`, `HOLM`, `TOPK_MATCHED`, data splitting, optional single-step min-p.
 * **Family operational (supplement):** each comparator on its own predefined family (`n ≥ 10`), plus legacy Top-N chains.
 * **Scenarios:** `global_null`, `null_gt_missing`, `null_informative_missing` (data artefact, reported separately), `alt`,
   and optionally `multi_alt_m<M>`.
@@ -323,7 +323,7 @@ Under `$BEATAML_OUT` (default `./output`):
   detectable effect and power.
 * In synthetic tests the sequential rule can declare at least one candidate under a global null, because a shared
   Top-N plus internal stability is not multiplicity control. Treat the rule as a descriptive reporting filter; error
-  control comes from FDR procedures, Westfall-Young and the separate Validation, not from the rule itself.
+  control comes from FDR procedures, single-step min-p and the separate Validation, not from the rule itself.
 * The mutation–drug link is made at the patient level and does not account for sample collection time
   (specimen-matched analyses are not part of the main pipeline).
 * A few console messages inside the freeze-bound core (`common/` and stages `00`–`08c`) are still in Persian: translating
